@@ -1,0 +1,19 @@
+# Only app/, docker/ and requirements.txt are needed in the build context.
+.git
+.github
+.gitignore
+.dockerignore
+.claude
+tests
+data
+debug
+*.md
+docker-compose.yml
+Dockerfile
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+.venv
+venv
+.env
+*.log

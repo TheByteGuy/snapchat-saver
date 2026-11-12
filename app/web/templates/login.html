@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Sign in · Snapchat Saver</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <main class="login-wrap">
+    <form class="card login-card" method="post" action="/login" autocomplete="on">
+      <div class="brand brand-lg">
+        <img src="/static/favicon.svg" alt="" width="40" height="40">
+        <div>
+          <h1>Snapchat Saver</h1>
+          <p class="muted">Keeps your streaks alive, one fact a day.</p>
+        </div>
+      </div>
+      {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+      {% if default_password %}
+      <div class="alert alert-warn">The dashboard password is still the default. Set <code>DASHBOARD_PASSWORD</code> in the app settings.</div>
+      {% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <input type="text" name="username" value="admin" autocomplete="username" hidden>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

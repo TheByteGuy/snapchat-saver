@@ -1,0 +1,43 @@
+# snapchat-saver - compose file for TrueNAS SCALE / HexOS
+# (Apps -> Discover Apps -> three-dot menu -> "Install via YAML"), or plain
+# `docker compose up -d` on any Docker host.
+#
+# Before installing, change:
+#   1. DASHBOARD_PASSWORD
+#   2. TZ (your IANA time zone, e.g. Europe/London, America/New_York)
+#   3. the host path on the left of the volume (a dataset you created)
+services:
+  snapchat-saver:
+    image: ghcr.io/thebyteguy/snapchat-saver:latest
+    # To build from a local checkout instead of pulling the image, comment
+    # out `image:` above and uncomment this:
+    # build: .
+    container_name: snapchat-saver
+    restart: unless-stopped
+    ports:
+      # <host port>:<container port>. Open http://<nas-ip>:30880 in a browser.
+      - "30880:8080"
+    environment:
+      DASHBOARD_PASSWORD: "change-me-to-something-long"
+      TZ: "Europe/London"
+      # User/group that owns the data dataset. 568:568 is the TrueNAS
+      # "apps" user; change it if your dataset is owned by someone else.
+      PUID: "568"
+      PGID: "568"
+      # Optional, see the README for details:
+      # SNAP_MIRROR_FEED: "false"
+      # SNAP_CHROMIUM_ARGS: ""
+    volumes:
+      # LEFT side: path of a dataset on your NAS, e.g.
+      # /mnt/tank/apps/snapchat-saver  (replace "tank" with your pool name).
+      # It holds the logged-in browser profile, settings, images and history.
+      - /mnt/POOL/apps/snapchat-saver:/data
+    # Chromium needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+    # tini is already the image's init process, so `init: true` is not needed.
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

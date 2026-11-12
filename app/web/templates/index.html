@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="csrf-token" content="{{ csrf }}">
+  <title>Snapchat Saver</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="application/json" id="boot">{{ boot_json | safe }}</script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="/static/favicon.svg" alt="" width="32" height="32">
+        <span class="brand-name">Snapchat Saver</span>
+      </div>
+      <div class="topbar-right">
+        <span id="top-pill" class="pill pill-unknown" aria-live="polite">Checking…</span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn btn-ghost btn-sm" type="submit">Log out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  {% if default_password %}
+  <div class="banner banner-warn" role="alert">
+    <strong>Security warning:</strong> the dashboard password is still the default <code>changeme</code>.
+    Anyone on your network can control your Snapchat account. Set <code>DASHBOARD_PASSWORD</code> in the app's
+    environment variables and restart the app.
+  </div>
+  {% endif %}
+
+  <main class="grid">
+    <!-- Status -->
+    <section class="card" id="status-card" aria-labelledby="status-h">
+      <div class="card-head">
+        <h2 id="status-h">Status</h2>
+        <button class="btn btn-sm" id="btn-check-login" type="button">Check login</button>
+      </div>
+      <dl class="stats">
+        <div class="stat">
+          <dt>Snapchat</dt>
+          <dd><span id="st-login" class="badge badge-unknown">Unknown</span></dd>
+        </div>
+        <div class="stat">
+          <dt>Next send</dt>
+          <dd id="st-next">–</dd>
+        </div>
+        <div class="stat">
+          <dt>Sent today</dt>
+          <dd><span id="st-today" class="badge badge-unknown">–</span></dd>
+        </div>
+        <div class="stat">
+          <dt>Browser</dt>
+          <dd id="st-browser">–</dd>
+        </div>
+      </dl>
+      <p id="st-error" class="error-text" hidden></p>
+    </section>
+
+    <!-- Snapchat login -->
+    <section class="card card-wide" id="login-card" aria-labelledby="login-h">
+      <div class="card-head">
+        <h2 id="login-h">Snapchat login</h2>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-open-login" type="button">Open Snapchat login</button>
+          <button class="btn" id="btn-toggle-view" type="button" aria-expanded="false">Show browser view</button>
+          <a class="btn" id="link-full" href="#" target="_blank" rel="noopener" hidden>Open in full window ↗</a>
+        </div>
+      </div>
+      <ol class="steps">
+        <li>Click <b>Open Snapchat login</b>, then log in inside the browser view below.</li>
+        <li>Approve the login on your phone if Snapchat asks.</li>
+        <li>Tick <b>Remember me</b> / stay signed in, then press <b>Check login</b>.</li>
+      </ol>
+      <p class="muted small">On a phone, use <b>Open in full window</b> — the embedded view is small.</p>
+      <div class="viewer" id="viewer">
+        <div class="viewer-placeholder" id="viewer-placeholder">
+          <p id="viewer-msg">The browser view is hidden. Press <b>Show browser view</b> to watch and control the Snapchat browser.</p>
+          <button class="btn btn-sm" id="btn-screenshot" type="button">Take a screenshot instead</button>
+          <img id="screenshot-img" class="screenshot" alt="Screenshot of the Snapchat browser" hidden>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recipients -->
+    <section class="card" id="recipients-card" aria-labelledby="rec-h">
+      <div class="card-head">
+        <h2 id="rec-h">Recipients</h2>
+        <button class="btn btn-sm" id="btn-friends" type="button">Load my friends</button>
+      </div>
+      <div id="friends-panel" class="friends" hidden>
+        <label class="field field-inline">
+          <span class="sr-only">Filter friends</span>
+          <input type="search" id="friends-filter" placeholder="Filter friends…" autocomplete="off">
+        </label>
+        <ul id="friends-list" class="checklist"></ul>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" id="btn-add-friends" type="button">Add selected</button>
+          <button class="btn btn-ghost btn-sm" id="btn-close-friends" type="button">Close</button>
+        </div>
+      </div>
+      <form id="add-recipient-form" class="inline-form">
+        <label class="field field-grow">
+          <span class="sr-only">Recipient name</span>
+          <input type="text" id="recipient-name" placeholder="Name exactly as shown in Snapchat" maxlength="100" autocomplete="off">
+        </label>
+        <button class="btn" type="submit">Add</button>
+      </form>
+      <ul id="recipient-list" class="list"></ul>
+      <p id="recipient-empty" class="muted small" hidden>No recipients yet. Load your friends or add a name manually.</p>
+    </section>
+
+    <!-- Schedule -->
+    <section class="card" id="schedule-card" aria-labelledby="sch-h">
+      <div class="card-head"><h2 id="sch-h">Schedule</h2></div>
+      <form id="schedule-form" class="stack">
+        <label class="switch-row">
+          <span>Send automatically every day</span>
+          <input type="checkbox" id="set-enabled" class="switch" role="switch">
+        </label>
+        <label class="field">
+          <span>Send time</span>
+          <input type="time" id="set-time" required step="60">
+        </label>
+        <div class="field">
+          <label for="tz-search">Timezone</label>
+          <input type="search" id="tz-search" placeholder="Search timezones (e.g. Berlin)" autocomplete="off" aria-controls="set-tz">
+          <select id="set-tz" size="5" aria-label="Timezone"></select>
+          <span class="muted small">Selected: <b id="tz-current">–</b></span>
+        </div>
+        <button class="btn btn-primary" type="submit">Save schedule</button>
+      </form>
+    </section>
+
+    <!-- Alerts -->
+    <section class="card" id="alerts-card" aria-labelledby="al-h">
+      <div class="card-head"><h2 id="al-h">Alerts</h2></div>
+      <form id="alerts-form" class="stack">
+        <label class="field">
+          <span>Discord webhook URL</span>
+          <input type="url" id="set-webhook" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
+          <span class="muted small">Failures are always reported. Leave empty to disable alerts.</span>
+        </label>
+        <label class="switch-row">
+          <span>Also notify on success (with the image)</span>
+          <input type="checkbox" id="set-notify-success" class="switch" role="switch">
+        </label>
+        <div class="btn-row">
+          <button class="btn btn-primary" type="submit">Save alerts</button>
+          <button class="btn" id="btn-test-alert" type="button">Send test alert</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Preview -->
+    <section class="card" id="preview-card" aria-labelledby="pv-h">
+      <div class="card-head">
+        <h2 id="pv-h">Preview</h2>
+        <button class="btn btn-sm" id="btn-preview" type="button">Generate preview</button>
+      </div>
+      <p class="muted small">Creates a new image with a fresh fact. Nothing is sent.</p>
+      <figure class="preview" id="preview" hidden>
+        <a id="preview-link" href="#" target="_blank" rel="noopener"><img id="preview-img" alt="Preview of the fact image"></a>
+        <figcaption id="preview-fact"></figcaption>
+      </figure>
+    </section>
+
+    <!-- Send test -->
+    <section class="card" id="sendtest-card" aria-labelledby="st-h">
+      <div class="card-head"><h2 id="st-h">Send test</h2></div>
+      <p class="muted small">Sends a real snap right now to the recipients you tick (test sends don't count as today's send).</p>
+      <fieldset class="checklist-box">
+        <legend class="sr-only">Test recipients</legend>
+        <ul id="sendtest-list" class="checklist"></ul>
+        <p id="sendtest-empty" class="muted small" hidden>Add recipients first.</p>
+      </fieldset>
+      <button class="btn btn-primary" id="btn-send-test" type="button">Send test snap now</button>
+      <div id="sendtest-progress" class="progress-box" aria-live="polite" hidden></div>
+    </section>
+
+    <!-- History -->
+    <section class="card card-wide" id="history-card" aria-labelledby="hi-h">
+      <div class="card-head">
+        <h2 id="hi-h">History</h2>
+        <button class="btn btn-sm btn-ghost" id="btn-history" type="button">Refresh</button>
+      </div>
+      <ul id="history-list" class="history"></ul>
+      <p id="history-empty" class="muted small" hidden>Nothing sent yet.</p>
+    </section>
+  </main>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+</body>
+</html>
