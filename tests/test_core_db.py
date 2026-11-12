@@ -8,6 +8,7 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("TZ", "Europe/Amsterdam")
     monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.delenv("SNAP_HEADLESS", raising=False)
     config.reload_settings()
     db.init_db()
     yield tmp_path
