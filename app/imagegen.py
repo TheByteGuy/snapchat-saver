@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import math
+import colorsys
+import json
 import random
 from datetime import date as _date
 from pathlib import Path
@@ -20,25 +22,79 @@ SAFE_H = int(HEIGHT * 0.60)
 SAFE_X0 = (WIDTH - SAFE_W) // 2
 SAFE_Y0 = (HEIGHT - SAFE_H) // 2
 
-# Curated palettes (3-4 stops each), chosen to keep white text readable.
-PALETTES: list[list[tuple[int, int, int]]] = [
-    [(255, 94, 98), (255, 153, 102), (255, 195, 113)],          # sunset
-    [(67, 206, 162), (24, 90, 157), (35, 37, 104)],             # lagoon
-    [(142, 45, 226), (74, 0, 224), (20, 20, 90)],               # ultraviolet
-    [(252, 70, 107), (63, 94, 251), (32, 38, 120)],             # neon dusk
-    [(17, 153, 142), (56, 239, 125), (12, 90, 80)],             # mint jungle
-    [(255, 81, 47), (221, 36, 118), (90, 20, 110)],             # flamingo
-    [(0, 198, 255), (0, 114, 255), (40, 30, 140)],              # ocean
-    [(247, 151, 30), (255, 210, 0), (230, 92, 0)],              # mango
-    [(238, 9, 121), (255, 106, 0), (120, 20, 90)],              # tropical
-    [(43, 192, 228), (234, 236, 198), (60, 120, 170)],          # seaside
-    [(131, 96, 195), (46, 191, 145), (25, 60, 90)],             # aurora
-    [(255, 0, 132), (51, 0, 27), (120, 0, 80)],                 # berry
-    [(252, 92, 125), (106, 130, 251), (60, 40, 140)],           # cotton candy
-    [(29, 151, 108), (147, 249, 185), (16, 80, 70)],            # spring
-    [(244, 107, 69), (238, 168, 73), (150, 50, 60)],            # autumn
-    [(15, 32, 39), (32, 58, 67), (44, 83, 100), (90, 160, 180)],  # deep sea
-]
+# How far (in degrees of hue) a new background must be from each of the last few days'.
+_RECENT_HUES = 4
+_MIN_HUE_GAP = 35.0
+# Hue offsets of the other gradient stops relative to the base hue.
+_SCHEMES = [(28, 58), (-30, -62), (40, 150), (60, 120), (-45, 170), (150, 205), (20, -25)]
+
+
+def _hsl(h: float, s: float, l: float) -> tuple[int, int, int]:
+    r, g, b = colorsys.hls_to_rgb((h % 360.0) / 360.0, l, s)
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+
+def _hue_gap(a: float, b: float) -> float:
+    d = abs(a - b) % 360.0
+    return min(d, 360.0 - d)
+
+
+def _hue_history_path() -> Path | None:
+    try:
+        from app.config import get_settings
+        return Path(get_settings().DATA_DIR) / "recent_hues.json"
+    except Exception:
+        return None
+
+
+def _load_recent_hues() -> list[float]:
+    path = _hue_history_path()
+    try:
+        return [float(h) for h in json.loads(path.read_text())][-_RECENT_HUES:] if path else []
+    except Exception:
+        return []
+
+
+def _save_recent_hues(hues: list[float]) -> None:
+    path = _hue_history_path()
+    try:
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps([round(h, 2) for h in hues[-_RECENT_HUES:]]))
+    except Exception:
+        pass  # colour history is a nicety; never fail a render over it
+
+
+def _pick_hue(rng: random.Random, recent: list[float]) -> float:
+    """A random hue anywhere on the colour wheel, kept clear of the last few used."""
+    best, best_gap = rng.uniform(0, 360), -1.0
+    for _ in range(60):
+        hue = rng.uniform(0, 360)
+        gap = min((_hue_gap(hue, r) for r in recent), default=360.0)
+        if gap >= _MIN_HUE_GAP:
+            return hue
+        if gap > best_gap:
+            best, best_gap = hue, gap
+    return best
+
+
+def generate_palette(rng: random.Random, recent: list[float] | None = None) -> tuple[list[tuple[int, int, int]], float]:
+    """Build a fresh 3-4 stop gradient palette. Returns (stops, base_hue).
+
+    The base hue is continuous, and the harmony, saturation and lightness are
+    randomised as well, so two days practically never get the same colours.
+    One stop is always dark so white text stays readable.
+    """
+    hue = _pick_hue(rng, recent or [])
+    off1, off2 = rng.choice(_SCHEMES)
+    bright = _hsl(hue, rng.uniform(0.72, 0.95), rng.uniform(0.52, 0.64))
+    mid = _hsl(hue + off1, rng.uniform(0.65, 0.92), rng.uniform(0.40, 0.54))
+    dark = _hsl(hue + off2, rng.uniform(0.55, 0.85), rng.uniform(0.16, 0.27))
+    stops = [bright, mid, dark]
+    if rng.random() < 0.35:
+        stops.insert(rng.randint(1, 2), _hsl(hue + (off1 + off2) / 2, rng.uniform(0.6, 0.9), rng.uniform(0.34, 0.5)))
+    return stops, hue
+
 
 _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 _MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
@@ -221,7 +277,11 @@ def render_fact_image(fact: str, out_path: Path, seed: int | None = None,
     ``date_text`` is shown under the header; defaults to today's local date.
     """
     rng = random.Random(seed)
-    stops = list(rng.choice(PALETTES))
+    # A fixed seed gives a reproducible image; otherwise steer away from recent days' colours.
+    recent = _load_recent_hues() if seed is None else []
+    stops, hue = generate_palette(rng, recent)
+    if seed is None:
+        _save_recent_hues(recent + [hue])
     if rng.random() < 0.5:
         stops.reverse()
 
