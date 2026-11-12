@@ -4,7 +4,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import random
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -47,6 +50,14 @@ def _enabled() -> bool:
     return (db.get_setting("enabled") or "1") == "1"
 
 
+def _jitter_seconds() -> float:
+    """Upper bound of the random delay added to the daily send (env SNAP_SEND_JITTER_MINUTES, default 8)."""
+    try:
+        return max(0.0, float(os.environ.get("SNAP_SEND_JITTER_MINUTES", "8"))) * 60.0
+    except ValueError:
+        return 480.0
+
+
 async def _daily_job(attempt: int = 0) -> None:
     """Run the daily send unless it already happened today; schedule retries on failure."""
     try:
@@ -59,6 +70,12 @@ async def _daily_job(attempt: int = 0) -> None:
         if db.sent_today(today):
             log.info("Daily send skipped: already sent for %s", today)
             return
+        if attempt == 0:
+            # Don't send at the exact same second every day.
+            wait = random.uniform(0, _jitter_seconds())
+            if wait > 0:
+                log.info("Daily send due; starting in %.0f seconds", wait)
+                await asyncio.sleep(wait)
         log.info("Daily send starting (attempt %d)", attempt + 1)
         result = await pipeline.run_send(test=False)
         status = result.get("status")

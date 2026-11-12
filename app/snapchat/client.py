@@ -129,6 +129,43 @@ class SnapchatClient:
         if factor:
             await asyncio.sleep(random.uniform(low, high) * factor)
 
+    async def _human_click(self, page, loc, timeout: float | None = None) -> None:
+        """Click the way a person does: glide the pointer to a spot inside the element
+        (not its exact centre), settle briefly, then press and release with a short hold."""
+        kwargs: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        factor = max(0.0, _env_float("SNAP_HUMAN_DELAY", 1.0))
+        if factor <= 0:
+            await loc.click(**kwargs)
+            return
+        try:
+            await loc.scroll_into_view_if_needed(timeout=3000)
+            box = await loc.bounding_box()
+            if not box or box["width"] < 4 or box["height"] < 4:
+                raise ValueError("no usable box")
+            dx = box["width"] * random.uniform(0.3, 0.7)
+            dy = box["height"] * random.uniform(0.3, 0.7)
+            await page.mouse.move(box["x"] + dx, box["y"] + dy, steps=random.randint(9, 22))
+            await asyncio.sleep(random.uniform(0.08, 0.3) * factor)
+            await loc.click(position={"x": dx, "y": dy}, delay=random.uniform(45, 130), **kwargs)
+        except Exception as exc:
+            if self._is_target_closed(exc):
+                raise
+            log.debug("human click fell back to a plain click: %s", exc)
+            await loc.click(**kwargs)
+
+    async def _human_type(self, loc, text: str) -> None:
+        """Type with uneven gaps between keys instead of a fixed machine rhythm."""
+        factor = max(0.0, _env_float("SNAP_HUMAN_DELAY", 1.0))
+        if factor <= 0:
+            await loc.press_sequentially(text)
+            return
+        for ch in text:
+            await loc.press_sequentially(ch)
+            gap = random.uniform(0.05, 0.17)
+            if ch == " " or random.random() < 0.06:
+                gap += random.uniform(0.08, 0.3)
+            await asyncio.sleep(gap * factor)
+
     # ------------------------------------------------------------------ lifecycle
     def _alive(self) -> bool:
         if self._context is None:
@@ -191,12 +228,16 @@ class SnapchatClient:
             "--no-default-browser-check",
             "--password-store=basic",
             "--disable-dev-shm-usage",
+            # Behave like a normally started browser: no "controlled by automated test
+            # software" banner and no navigator.webdriver marker.
+            "--disable-blink-features=AutomationControlled",
         ]
         kwargs: dict[str, Any] = {
             "headless": headless,
             "args": args,
             "locale": os.environ.get("SNAP_LOCALE", "en-US"),
             "accept_downloads": False,
+            "ignore_default_args": ["--enable-automation"],
         }
         tz = getattr(s, "DEFAULT_TZ", None) or os.environ.get("TZ")
         if tz and self._valid_tz(tz):
@@ -325,7 +366,7 @@ class SnapchatClient:
     async def _click(self, page, step: str, *, name: str | None = None, timeout: float | None = None):
         loc = await self._find(page, step, name=name, timeout=timeout)
         await self._human_pause()
-        await loc.click()
+        await self._human_click(page, loc)
         return loc
 
     async def _dismiss_popups(self, page) -> int:
@@ -337,7 +378,7 @@ class SnapchatClient:
             loc, idx, cand = hit
             try:
                 label = (await loc.inner_text(timeout=1000)).strip()
-                await loc.click(timeout=3000)
+                await self._human_click(page, loc, timeout=3000)
                 dismissed += 1
                 log.info("step=popup_dismiss clicked %r via candidate #%d: %s", label, idx + 1, cand)
                 await asyncio.sleep(0.4)
@@ -711,16 +752,15 @@ class SnapchatClient:
         except StepError:
             log.info("no picker search box found; looking for %r in the visible list", name)
         if search is not None:
-            await search.click()
+            await self._human_click(page, search)
             await search.fill("")
-            delay = 60 * max(0.0, _env_float("SNAP_HUMAN_DELAY", 1.0))
-            await search.press_sequentially(name, delay=delay)
+            await self._human_type(search, name)
             await asyncio.sleep(0.8)
         item = await self._find(
             page, "picker_recipient", name=name, timeout=min(10.0, self._step_timeout()), root=root
         )
         await self._human_pause()
-        await item.click()
+        await self._human_click(page, item)
         log.info("selected recipient %r", name)
         if search is not None:
             await self._human_pause(0.2, 0.5)

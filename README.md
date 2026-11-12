@@ -155,6 +155,8 @@ with environment variables:
 | `SNAP_FEED_LAYOUT` | `landscape` | Shape of the fake-camera frame. The default centres the image in a 1920x1080 frame so it survives Snapchat's portrait crop; `portrait` feeds the image as is. |
 | `SNAP_FEED_SCALE` | `0.96` | How much of the frame height the image fills in the landscape layout. Lower it if the edges of the image get cropped. |
 | `SNAP_STEP_TIMEOUT` | `20` | Seconds to wait for each step of the send flow. |
+| `SNAP_SEND_JITTER_MINUTES` | `8` | The daily Snap goes out a random 0 to this many minutes after the time you set, so it is not sent at the exact same second every day. `0` turns this off. |
+| `SNAP_HUMAN_DELAY` | `1` | Multiplier for the small random pauses, pointer movement and typing rhythm used while sending. Raise it to go slower. `0` disables them (not recommended). |
 
 Ports: the container listens on **8080** (dashboard, including the embedded
 browser view over a WebSocket). VNC (5900) is bound to `127.0.0.1` inside the
