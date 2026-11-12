@@ -22,6 +22,7 @@ import glob
 import logging
 import os
 import random
+import shlex
 import shutil
 import time
 from datetime import datetime
@@ -211,6 +212,9 @@ class SnapchatClient:
             env = dict(os.environ)
             env["DISPLAY"] = s.DISPLAY
             kwargs["env"] = env
+        extra = os.environ.get("SNAP_CHROMIUM_ARGS", "").strip()
+        if extra:
+            args.extend(shlex.split(extra))
         exe = os.environ.get("SNAP_CHROMIUM_PATH", "").strip()
         if exe:
             kwargs["executable_path"] = exe

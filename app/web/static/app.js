@@ -309,14 +309,12 @@
     const sel = $("#set-tz");
     sel.replaceChildren();
     let list = q ? timezones.filter((z) => z.toLowerCase().includes(q)) : timezones;
-    if (currentTz && !list.includes(currentTz) && !q) list = [currentTz].concat(list);
+    if (currentTz && !q) list = [currentTz].concat(list.filter((z) => z !== currentTz));
     for (const z of list.slice(0, 400)) {
       const o = el("option", { value: z }, z.replace(/_/g, " "));
       if (z === currentTz) o.selected = true;
       sel.append(o);
     }
-    const selOpt = sel.querySelector("option[selected]");
-    if (selOpt) selOpt.scrollIntoView({ block: "nearest" });
   }
 
   function applySettings(s) {

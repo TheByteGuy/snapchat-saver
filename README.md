@@ -152,6 +152,9 @@ with environment variables:
 | `SNAP_CHROMIUM_ARGS` | *(empty)* | Extra Chromium flags, space separated, appended to the launch arguments (e.g. `--disable-gpu`). |
 | `SNAP_CHROMIUM_PATH` | *(bundled)* | Path to a different Chromium/Chrome executable instead of the Playwright-bundled one. |
 | `SNAP_WEB_URL` | `https://www.snapchat.com/web` | Snapchat Web start URL. Only change it if Snapchat moves the web client. |
+| `SNAP_FEED_LAYOUT` | `landscape` | Shape of the fake-camera frame. The default centres the image in a 1920x1080 frame so it survives Snapchat's portrait crop; `portrait` feeds the image as is. |
+| `SNAP_FEED_SCALE` | `0.96` | How much of the frame height the image fills in the landscape layout. Lower it if the edges of the image get cropped. |
+| `SNAP_STEP_TIMEOUT` | `20` | Seconds to wait for each step of the send flow. |
 
 Ports: the container listens on **8080** (dashboard, including the embedded
 browser view over a WebSocket). VNC (5900) is bound to `127.0.0.1` inside the
@@ -280,14 +283,34 @@ the login at any time.
 
 ## Selector overrides
 
-<!-- SELECTOR-OVERRIDES: exact file format to be documented here. -->
+When Snapchat changes its web app, the selectors the automation uses to find
+buttons can stop matching. Instead of waiting for a new image, create
+`/data/selectors.json`. It is re-read whenever it changes; no restart needed.
 
-When Snapchat changes its web app, the CSS/text selectors the automation
-uses to find buttons (camera, capture, send, recipient list, ...) can stop
-matching. Instead of waiting for a new image, you can create
-`/data/selectors.json` to override individual selectors by name; the app
-reads it before each browser action and falls back to its built-in defaults
-for anything not listed. The exact keys and format are described below.
+Each key is a step name, each value an ordered list of
+[Playwright selectors](https://playwright.dev/python/docs/locators) (CSS,
+`role=button[name=/regex/i]`, `text=...`, `xpath=...`). The first one that
+matches a visible element wins.
+
+Step names: `logged_out`, `logged_in`, `chat_list_item`, `chat_list_scroll`,
+`open_camera`, `camera_video`, `shutter`, `send_to`, `picker_container`,
+`picker_search`, `picker_recipient`, `send_button`, `popup_dismiss`.
+
+- A plain list **replaces** the built-in candidates for that step.
+- `{"prepend": [...], "append": [...]}` **extends** them instead.
+- In `picker_recipient`, `{name}` is replaced with the recipient's display name.
+- Unknown keys and invalid JSON are logged and ignored.
+
+```json
+{
+  "shutter": ["button[aria-label='Take a Snap']"],
+  "send_to": {"prepend": ["button:has-text('Send to')"]}
+}
+```
+
+To find out which step broke, look at the container log (each step logs which
+candidate matched, e.g. `step=shutter matched candidate #2`) and at the
+screenshot and page HTML saved as `/data/debug/<timestamp>-<step>.png/.html`.
 
 ---
 
