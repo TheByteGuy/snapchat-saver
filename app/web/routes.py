@@ -312,7 +312,7 @@ async def put_settings(payload: dict = Body(...)):
     known = {"send_time", "timezone", "enabled", "discord_webhook_url", "notify_on_success"}
     for key in payload:
         if key not in known:
-            errors[key] = "Unknown setting."
+            errors[key] = f"Unknown setting '{key}'."
     if "send_time" in payload:
         v = payload["send_time"]
         if isinstance(v, str) and TIME_RE.match(v.strip()):
@@ -331,7 +331,7 @@ async def put_settings(payload: dict = Body(...)):
             if isinstance(v, bool):
                 updates[key] = "1" if v else "0"
             else:
-                errors[key] = "Must be true or false."
+                errors[key] = f"'{key}' must be true or false."
     if "discord_webhook_url" in payload:
         v = payload["discord_webhook_url"]
         v = v.strip() if isinstance(v, str) else None
@@ -343,7 +343,7 @@ async def put_settings(payload: dict = Body(...)):
             )
     if errors:
         return JSONResponse(
-            {"ok": False, "error": "; ".join(f"{k}: {v}" for k, v in errors.items()), "errors": errors},
+            {"ok": False, "error": " ".join(errors.values()), "errors": errors},
             status_code=422,
         )
     db = mod("db")

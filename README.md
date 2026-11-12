@@ -115,7 +115,7 @@ Browse to `http://<nas-ip>:30880` and log in with `DASHBOARD_PASSWORD`.
    approve the login on your phone if Snapchat asks (it usually does for a
    new device). Solve any captcha the same way.
 4. Click **Check login**. The status should change to *logged in*.
-5. **Load friends** and tick the recipients that should get the daily Snap
+5. **Load my friends** and tick the recipients that should get the daily Snap
    (or add a name manually exactly as it appears in your chat list). Leave
    friends you do not want spammed unticked.
 6. **Schedule:** set the send time and your time zone, and make sure the
@@ -126,7 +126,7 @@ Browse to `http://<nas-ip>:30880` and log in with `DASHBOARD_PASSWORD`.
    whether successful sends should also be posted, and click **Send test
    alert**.
 8. **Generate preview** to see today's image.
-9. **Send test snap** to one friend (or yourself via a second account) and
+9. **Send test snap now** to one friend (or yourself via a second account) and
    check on your phone that it arrived and looks right.
 
 From now on it sends once a day by itself. The dashboard shows the next run
@@ -252,7 +252,7 @@ step saves a screenshot and the page HTML to `/data/debug/` (on the NAS:
 `<your dataset>/debug/`). Look at the newest files to see where it got
 stuck. Then either update the image (a fix may already be published) or
 override the failing selector in `/data/selectors.json` (see
-[Selector overrides](#selector-overrides)) and use **Send test snap** to
+[Selector overrides](#selector-overrides)) and use **Send test snap now** to
 check.
 
 **The received Snap is mirrored or cropped.** If the text reads backwards,

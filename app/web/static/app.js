@@ -76,11 +76,14 @@
     finally { if (btn) { btn.disabled = false; btn.classList.remove("loading"); } }
   }
 
-  function fmtDateTime(iso) {
+  function fmtDateTime(iso, tz) {
     if (!iso) return "–";
     const d = new Date(iso);
     if (isNaN(d)) return iso;
-    return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const opts = { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+    if (tz) { opts.timeZone = tz; opts.timeZoneName = "short"; }
+    try { return d.toLocaleString(undefined, opts); }
+    catch (e) { delete opts.timeZone; delete opts.timeZoneName; return d.toLocaleString(undefined, opts); }
   }
 
   function statusBadge(status) {
@@ -124,7 +127,7 @@
       const s = await api("GET", "/api/status");
       renderSnapStatus(s.snapchat);
       const enabled = s.settings && s.settings.enabled;
-      $("#st-next").textContent = !enabled ? "Paused" : (s.next_run ? fmtDateTime(s.next_run) : "Not scheduled");
+      $("#st-next").textContent = !enabled ? "Paused" : (s.next_run ? fmtDateTime(s.next_run, s.settings.timezone) : "Not scheduled");
       const today = $("#st-today");
       today.className = "badge " + (s.sent_today ? "badge-ok" : "badge-unknown");
       today.textContent = s.sent_today ? "Yes" : "Not yet";
