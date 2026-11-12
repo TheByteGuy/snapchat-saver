@@ -43,7 +43,7 @@ WORKDIR /opt/snapchat-saver
 # Chromium build ships in the base image.
 COPY requirements.txt ./
 RUN grep -viE '^[[:space:]]*pytest' requirements.txt > /tmp/requirements-runtime.txt \
- && pip install --no-cache-dir -r /tmp/requirements-runtime.txt "playwright==${PLAYWRIGHT_VERSION}" \
+ && pip install --no-cache-dir --ignore-installed -r /tmp/requirements-runtime.txt "playwright==${PLAYWRIGHT_VERSION}" \
  && rm /tmp/requirements-runtime.txt \
  && python -c "import playwright, importlib.metadata as m; v = m.version('playwright'); assert v == '${PLAYWRIGHT_VERSION}', v"
 
