@@ -128,10 +128,12 @@ def _add_noise(img: Image.Image) -> Image.Image:
     return Image.blend(img, ImageChops.overlay(img, noise), 0.35)
 
 
-def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int, draw: ImageDraw.ImageDraw) -> list[str]:
+def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int, draw: ImageDraw.ImageDraw) -> tuple[list[str], bool]:
+    """Greedy word wrap. Returns (lines, broke_a_word)."""
     words = text.split()
     lines: list[str] = []
     cur = ""
+    broke = False
     for w in words:
         trial = f"{cur} {w}".strip()
         if draw.textlength(trial, font=font) <= max_w:
@@ -141,6 +143,7 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int, draw: ImageDraw.I
             lines.append(cur)
         # break words that are wider than the box on their own
         while draw.textlength(w, font=font) > max_w and len(w) > 1:
+            broke = True
             cut = len(w)
             while cut > 1 and draw.textlength(w[:cut] + "-", font=font) > max_w:
                 cut -= 1
@@ -149,34 +152,45 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int, draw: ImageDraw.I
         cur = w
     if cur:
         lines.append(cur)
-    return lines
+    return lines, broke
 
 
 def _fit_text(text: str, box_w: int, box_h: int, draw: ImageDraw.ImageDraw,
               max_size: int = 104, min_size: int = 26) -> tuple[ImageFont.FreeTypeFont, list[str], int]:
     """Largest font size whose wrapped text fits the box. Returns (font, lines, line_height)."""
-    lo, hi = min_size, max_size
-    best = None
-    while lo <= hi:
-        size = (lo + hi) // 2
+    def attempt(size: int, allow_break: bool):
         font = _font(FONT_BOLD, size)
-        lines = _wrap(text, font, box_w, draw)
+        lines, broke = _wrap(text, font, box_w, draw)
+        if broke and not allow_break:
+            return None
         line_h = int(size * 1.25)
-        total_h = line_h * len(lines)
         widest = max((draw.textlength(l, font=font) for l in lines), default=0)
-        if total_h <= box_h and widest <= box_w:
-            best = (font, lines, line_h)
-            lo = size + 1
-        else:
-            hi = size - 1
+        if line_h * len(lines) <= box_h and widest <= box_w:
+            return font, lines, line_h
+        return None
+
+    best = None
+    # Prefer sizes where no word has to be hyphenated; only allow breaking as a last resort.
+    for allow_break in (False, True):
+        lo, hi = min_size, max_size
+        while lo <= hi:
+            size = (lo + hi) // 2
+            res = attempt(size, allow_break)
+            if res:
+                best = res
+                lo = size + 1
+            else:
+                hi = size - 1
+        if best:
+            break
     if best is None:
         font = _font(FONT_BOLD, min_size)
-        lines = _wrap(text, font, box_w, draw)
+        lines, _ = _wrap(text, font, box_w, draw)
         line_h = int(min_size * 1.25)
         max_lines = max(1, box_h // line_h)
         if len(lines) > max_lines:
             lines = lines[:max_lines]
-            lines[-1] = lines[-1].rstrip(".,;:") + "…"
+            lines[-1] = lines[-1].rstrip(".,;:") + "\u2026"
         best = (font, lines, line_h)
     return best
 
@@ -222,7 +236,9 @@ def render_fact_image(fact: str, out_path: Path, seed: int | None = None,
     pad = 36
     card = (SAFE_X0 - pad // 2, SAFE_Y0, SAFE_X0 + SAFE_W + pad // 2, SAFE_Y0 + SAFE_H)
     blurred = img.crop(card).filter(ImageFilter.GaussianBlur(30))
-    tint = Image.new("RGBA", blurred.size, (10, 10, 30, 95))
+    lum = sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b in stops) / len(stops)
+    tint_alpha = int(min(170, 105 + max(0.0, lum - 110) * 1.1))  # brighter palettes get a darker card
+    tint = Image.new("RGBA", blurred.size, (*deep, tint_alpha))
     blurred.alpha_composite(tint)
     mask = Image.new("L", blurred.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, blurred.width - 1, blurred.height - 1], radius=56, fill=255)

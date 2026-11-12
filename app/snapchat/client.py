@@ -146,7 +146,9 @@ class SnapchatClient:
         self._lock = None
 
     def _on_context_close(self, *_: Any) -> None:
-        log.warning("browser context closed")
+        if self._context is None:  # we closed it ourselves in _shutdown()
+            return
+        log.warning("browser closed unexpectedly; it will be restarted on the next call")
         self._context = None
         self._page = None
 
@@ -292,21 +294,22 @@ class SnapchatClient:
         base = (urlparse(web_url()).hostname or "").lower()
         return host == base or host == SNAPCHAT_DOMAIN or host.endswith("." + SNAPCHAT_DOMAIN)
 
-    async def _first_visible(self, page, step: str, candidates: list[str]):
+    async def _first_visible(self, page, step: str, candidates: list[str], root=None):
+        root = page if root is None else root
         for idx, cand in enumerate(candidates):
             try:
-                loc = page.locator(f"{cand} >> visible=true").first
+                loc = root.locator(f"{cand} >> visible=true").first
                 if await loc.count():
                     return loc, idx, cand
             except Exception as exc:  # invalid selector from selectors.json, detached frame...
                 log.debug("step=%s candidate #%d %r errored: %s", step, idx + 1, cand, exc)
         return None
 
-    async def _find(self, page, step: str, *, name: str | None = None, timeout: float | None = None):
+    async def _find(self, page, step: str, *, name: str | None = None, timeout: float | None = None, root=None):
         candidates = self.selectors.get(step, name)
         deadline = time.monotonic() + (self._step_timeout() if timeout is None else timeout)
         while True:
-            hit = await self._first_visible(page, step, candidates)
+            hit = await self._first_visible(page, step, candidates, root)
             if hit:
                 loc, idx, cand = hit
                 log.info("step=%s matched candidate #%d: %s", step, idx + 1, cand)
@@ -688,10 +691,19 @@ class SnapchatClient:
                 continue
         return False
 
+    async def _picker_root(self, page):
+        hit = await self._first_visible(page, "picker_container", self.selectors.get("picker_container"))
+        if hit:
+            log.info("step=picker_container matched candidate #%d: %s", hit[1] + 1, hit[2])
+            return hit[0]
+        log.warning("step=picker_container: no candidate matched; searching recipients in the whole page")
+        return None
+
     async def _select_recipient(self, page, name: str) -> None:
+        root = await self._picker_root(page)
         search = None
         try:
-            search = await self._find(page, "picker_search", timeout=min(5.0, self._step_timeout()))
+            search = await self._find(page, "picker_search", timeout=min(5.0, self._step_timeout()), root=root)
         except StepError:
             log.info("no picker search box found; looking for %r in the visible list", name)
         if search is not None:
@@ -700,7 +712,9 @@ class SnapchatClient:
             delay = 60 * max(0.0, _env_float("SNAP_HUMAN_DELAY", 1.0))
             await search.press_sequentially(name, delay=delay)
             await asyncio.sleep(0.8)
-        item = await self._find(page, "picker_recipient", name=name, timeout=min(10.0, self._step_timeout()))
+        item = await self._find(
+            page, "picker_recipient", name=name, timeout=min(10.0, self._step_timeout()), root=root
+        )
         await self._human_pause()
         await item.click()
         log.info("selected recipient %r", name)

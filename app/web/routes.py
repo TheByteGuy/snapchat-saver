@@ -457,6 +457,9 @@ send_job = SendTestJob()
 async def send_test(payload: dict | None = Body(default=None)):
     if send_job.running:
         return _err(409, "A test send is already running.")
+    busy = getattr(mod("pipeline"), "is_busy", None)
+    if callable(busy) and busy():
+        return _err(409, "A send is already in progress. Try again in a few minutes.")
     raw = (payload or {}).get("recipients")
     if raw is not None and not isinstance(raw, list):
         raise HTTPException(status_code=422, detail="'recipients' must be a list of names.")

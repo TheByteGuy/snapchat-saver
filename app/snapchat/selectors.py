@@ -104,6 +104,14 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
         "input[type='search']",
         "form input[type='text']",
     ],
+    # Container of the recipient picker; recipient rows are searched inside it so that a chat-list
+    # row with the same name (still visible in the sidebar) is never clicked by mistake.
+    "picker_container": [
+        "[role='dialog']:has(input)",
+        "form:has(input):has(button)",
+        "[role='dialog']",
+        "form",
+    ],
     # A recipient row in the picker; {name} = exact display name.
     "picker_recipient": [
         "[role='listitem']:has(:text-is(\"{name}\"))",
