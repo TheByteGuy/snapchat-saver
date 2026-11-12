@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments / local config
+.venv/
+venv/
+.env
+
+# Local runtime data (DATA_DIR during development)
+# (anchored to the repo root so app/data/ is still tracked)
+/data/
+/debug/
+*.log
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
