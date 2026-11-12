@@ -216,7 +216,7 @@ Running the container with `user:` in compose is also supported; then no
 
 - **Facts:** fetched from the free Useless Facts API
   (`uselessfacts.jsph.pl`). Facts already used are skipped. If the API is
-  down, a bundled list of 200+ facts is used, so a Snap is still sent.
+  down, a bundled list of 365 facts is used, so a Snap is still sent.
 - **Image:** rendered with Pillow as a 1080×1920 PNG with a random
   multi-stop gradient, a "Fact of the day" header with the date, and the
   fact auto-sized to fit.
