@@ -77,6 +77,7 @@ DEFAULT_SELECTORS: dict[str, list[str]] = {
     ],
     # Live preview <video> showing the (fake) webcam.
     "camera_video": [
+        "video#local-video",
         "video",
     ],
     # Shutter / capture button.

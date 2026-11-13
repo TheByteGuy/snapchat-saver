@@ -97,17 +97,13 @@ def _serialized(fn):
     return wrapper
 
 
-# A <video> showing a webcam: its srcObject is a MediaStream with a live video track that
-# came from a capture device (getUserMedia tracks carry a deviceId; canvas/remote ones do not).
+# The camera preview <video>. Snapchat Web runs the webcam through its lens pipeline (a hidden
+# canvas) and shows the result in <video id="local-video">, fed by a MediaStream. Other videos
+# on the page (Spotlight, lens promos) play from a URL (src), not a MediaStream, so they never match.
 _IS_CAMERA_JS = """v => {
+  if (v.id === 'local-video') return true;
   const s = v.srcObject;
-  if (!s || typeof s.getVideoTracks !== 'function') return false;
-  return s.getVideoTracks().some(t => {
-    if (t.readyState !== 'live') return false;
-    if (typeof CanvasCaptureMediaStreamTrack !== 'undefined' && t instanceof CanvasCaptureMediaStreamTrack) return false;
-    const st = t.getSettings ? t.getSettings() : {};
-    return !!st.deviceId;
-  });
+  return !!(s && typeof s.getVideoTracks === 'function' && s.getVideoTracks().some(t => t.readyState === 'live'));
 }"""
 
 _CAMERA_BOX_JS = """() => {

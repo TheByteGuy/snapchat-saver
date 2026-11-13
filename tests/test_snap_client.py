@@ -35,7 +35,7 @@ nav{width:260px;border-right:1px solid #ccc;display:flex;flex-direction:column}
 #chats div[role=listitem]{padding:10px;border-bottom:1px solid #eee}
 main{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#111}
 #pane{width:270px;height:480px;overflow:hidden;display:flex;align-items:center;justify-content:center}
-#pane video{width:480px;height:480px;flex:none;object-fit:cover}
+#pane video{width:270px;height:480px;flex:none;object-fit:cover}
 canvas{width:270px;height:480px;object-fit:cover}
 #promo{position:fixed;left:0;top:250px;width:520px;height:560px;pointer-events:none;opacity:.9}
 .hidden{display:none!important}
@@ -69,11 +69,22 @@ document.querySelector('#cookie button').onclick=()=>document.getElementById('co
 const $=id=>document.getElementById(id); let stream=null; const selected=new Set();
 { const pc=document.createElement('canvas'); pc.width=320; pc.height=320; const g=pc.getContext('2d'); let n=0;
   setInterval(()=>{ g.fillStyle=`hsl(${(n+=7)%360},80%,50%)`; g.fillRect(0,0,320,320); }, 50);
-  $('promo').srcObject=pc.captureStream(20); $('promo').play().catch(()=>{}); }
+  const rec=new MediaRecorder(pc.captureStream(20), {mimeType:'video/webm'}); const parts=[];
+  rec.ondataavailable=e=>parts.push(e.data);
+  rec.onstop=()=>{ const p=$('promo'); p.loop=true; p.src=URL.createObjectURL(new Blob(parts,{type:'video/webm'})); p.play().catch(()=>{}); };
+  rec.start(); setTimeout(()=>rec.stop(), 600); }
 $('opencam').onclick=async()=>{ stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}});
-  $('v').srcObject=stream; $('v').classList.remove('hidden'); $('opencam').classList.add('hidden');
-  await $('v').play(); $('shutter').classList.remove('hidden'); };
-$('shutter').onclick=()=>{ $('pane').classList.add('hidden'); const v=$('v'), c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
+  // Like Snapchat Web: the webcam goes through a hidden 9:16 "lens" canvas at the top-left,
+  // and the preview <video id="local-video"> shows that canvas' stream.
+  const raw=document.createElement('video'); raw.muted=true; raw.srcObject=stream; await raw.play();
+  const lens=document.createElement('canvas'); lens.width=406; lens.height=720;
+  lens.style.cssText='position:fixed;left:0;top:0;z-index:-1'; document.body.appendChild(lens);
+  const lg=lens.getContext('2d');
+  (function draw(){ const vw=raw.videoWidth, vh=raw.videoHeight; if (vw) { const cw=vh*406/720;
+    lg.drawImage(raw,(vw-cw)/2,0,cw,vh,0,0,406,720); } requestAnimationFrame(draw); })();
+  $('v').id='local-video'; window.$v=$('local-video'); window.$v.srcObject=lens.captureStream(30); $v.classList.remove('hidden'); $('opencam').classList.add('hidden');
+  await $v.play(); $('shutter').classList.remove('hidden'); };
+$('shutter').onclick=()=>{ $('pane').classList.add('hidden'); const v=$v, c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
   c.getContext('2d').drawImage(v,0,0); stream.getTracks().forEach(t=>t.stop());
   v.classList.add('hidden'); c.classList.remove('hidden'); $('shutter').classList.add('hidden'); $('sendto').classList.remove('hidden'); };
 function renderPicker(){ const q=$('q').value.toLowerCase(); const ul=$('plist'); ul.innerHTML='';
@@ -254,8 +265,9 @@ def test_send_to_two_recipients_uses_fake_camera(env, tmp_path):
     assert len(env.sent) == 2
     one, two = env.sent
     assert sorted(one["recipients"]) == ["Alice Smith", "Bob Jones"]  # exact match: not "Alice Smithson"
-    assert (one["width"], one["height"]) == (1280, 720)  # page asked for 1280x720; Chromium scales the 1920x1080 feed
-    assert one["edge"][0] < one["center"][0] - 40  # letterbox fill (darkened blur) at the sides
+    # The snap is the 9:16 lens output (like Snapchat Web), and after calibration the image fills it.
+    assert (one["width"], one["height"]) == (406, 720)
+    assert one["edge"][0] > 150 and one["edge"][1] < 90, one
     r, g, b = one["center"]
     assert r > 170 and g < 90 and b < 90
     assert two["recipients"] == ["Carol O'Neil"]
@@ -361,6 +373,8 @@ def test_camera_box_is_the_clipped_webcam_pane_not_other_videos(env):
         page = await client._get_page()
         await client._goto_web(page)
         await client._dismiss_popups(page)
+        await page.wait_for_function(
+            "() => { const p = document.getElementById('promo'); return p.readyState >= 2 && !p.paused; }", timeout=10000)
         before = await client._video_playing(page)
         await client._open_camera(page)
         box = await client._camera_box(page)
