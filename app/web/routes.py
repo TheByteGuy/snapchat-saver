@@ -282,6 +282,19 @@ async def snapchat_check_login():
     return {"ok": True, "logged_in": bool(logged_in), "snapchat": await _snap_status()}
 
 
+@api.get("/debug/latest")
+async def debug_latest(kind: str = "txt"):
+    """Newest debug file saved after a failed Snapchat step: kind=txt (element report), png or html."""
+    if kind not in {"txt", "png", "html"}:
+        return _err(400, "kind must be txt, png or html")
+    files = sorted(Path(settings().DEBUG_DIR).glob(f"*.{kind}"))
+    if not files:
+        return _err(404, "No debug files yet")
+    media = "image/png" if kind == "png" else "text/plain; charset=utf-8"
+    return Response(files[-1].read_bytes(), media_type=media,
+                    headers={"Cache-Control": "no-store", "X-Debug-File": files[-1].name})
+
+
 @api.get("/snapchat/screenshot")
 async def snapchat_screenshot():
     try:

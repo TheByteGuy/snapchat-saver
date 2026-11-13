@@ -293,7 +293,9 @@ def test_broken_selector_reports_step_and_override_fixes_it(env, tmp_path):
         return bad, good
 
     bad, good = _run(go)
-    assert not bad["Bob Jones"].ok and "shutter" in bad["Bob Jones"].error
+    # With no shutter selector the client clicks the pane by position, which misses in this
+    # fixture, so the failure surfaces at the next step.
+    assert not bad["Bob Jones"].ok and "send_to" in bad["Bob Jones"].error
     assert any("send_prepare" in f for f in _debug_files(tmp_path))
     assert good["Bob Jones"].ok
 
@@ -324,3 +326,21 @@ def test_calls_from_another_event_loop_are_dispatched_to_owner(env):
         owner.call_soon_threadsafe(owner.stop)
         t.join(10)
         owner.close()
+
+
+def test_first_send_calibrates_camera_and_fills_pane(env, tmp_path):
+    import json as _json
+
+    async def go(client):
+        return await client.send_snap(_image(tmp_path, (20, 200, 60)), ["Bob Jones"])
+
+    res = _run(go)
+    assert res["Bob Jones"].ok
+    cal = _json.loads((tmp_path / "data" / "camera" / "calibration.json").read_text())
+    x, y, w, h = cal["region"]
+    assert w > 80 and h > 80 and 0 <= x < 1920 and 0 <= y < 1080
+    sent = env.sent[-1]
+    # The fixture's pane is a centred portrait crop of the frame, so that is what must be measured,
+    # and the image must land in the middle of the frame.
+    assert abs((x + w / 2) - 960) < 20 and abs(w / h - 9 / 16) < 0.05, cal
+    assert sent["center"][1] > 150 and sent["center"][0] < 90

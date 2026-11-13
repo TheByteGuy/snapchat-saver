@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import io
 import glob
 import logging
 import os
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from . import camera
 from .camera import ensure_placeholder_feed, feed_path, prepare_camera_feed
 from .errors import NotLoggedInError, SendResult, StepError
 from .selectors import SelectorStore
@@ -436,19 +438,54 @@ class SnapchatClient:
                 stem.with_suffix(".html").write_text(f"<!-- url: {page.url} -->\n{html}", encoding="utf-8")
             except Exception as exc:
                 log.warning("debug HTML dump failed: %s", exc)
-            log.info("saved debug artefacts %s.{png,html}", stem)
+            try:
+                stem.with_suffix(".txt").write_text(await self._page_report(page), encoding="utf-8")
+            except Exception as exc:
+                log.warning("debug report failed: %s", exc)
+            log.info("saved debug artefacts %s.{png,html,txt}", stem)
             self._prune_debug(debug_dir)
             return stem
         except Exception as exc:
             log.warning("could not save debug artefacts: %s", exc)
             return None
 
+    async def _page_report(self, page) -> str:
+        """A compact text list of what is clickable on the page, for fixing selectors remotely.
+        Contains labels and layout only, no message contents beyond short button texts."""
+        items = await page.evaluate(
+            """() => {
+              const out = [];
+              const sel = 'button, [role=button], a[href], input, textarea, video, canvas, [aria-label], [title], [role=dialog], [role=listitem], [role=option]';
+              for (const el of document.querySelectorAll(sel)) {
+                const r = el.getBoundingClientRect();
+                if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
+                const cs = getComputedStyle(el);
+                if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+                const role = el.getAttribute('role') || '';
+                const chat = role === 'listitem' || role === 'option';
+                out.push([el.tagName.toLowerCase(), role, el.getAttribute('aria-label') || '',
+                  el.getAttribute('title') || '', el.getAttribute('placeholder') || '', el.getAttribute('type') || '',
+                  chat ? '(row)' : (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40),
+                  (typeof el.className === 'string' ? el.className : '').slice(0, 70),
+                  el.id || '', Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height),
+                  el.tagName === 'VIDEO' ? `video ${el.videoWidth}x${el.videoHeight} fit=${cs.objectFit} transform=${cs.transform}` : '']);
+                if (out.length >= 400) break;
+              }
+              return {url: location.href, w: innerWidth, h: innerHeight, items: out};
+            }"""
+        )
+        lines = [f"url: {items['url']}", f"viewport: {items['w']}x{items['h']}",
+                 "tag | role | aria-label | title | placeholder | type | text | class | id | x,y,w,h | extra"]
+        for it in items["items"]:
+            lines.append(" | ".join(str(v) for v in it[:9]) + f" | {it[9]},{it[10]},{it[11]},{it[12]} | {it[13]}")
+        return "\n".join(lines) + "\n"
+
     @staticmethod
     def _prune_debug(debug_dir: Path) -> None:
         files = sorted(debug_dir.glob("*.png")) + sorted(debug_dir.glob("*.html"))
         stems = sorted({f.with_suffix("") for f in files})
         for stem in stems[:-DEBUG_KEEP]:
-            for ext in (".png", ".html"):
+            for ext in (".png", ".html", ".txt"):
                 try:
                     stem.with_suffix(ext).unlink()
                 except OSError:
@@ -618,9 +655,15 @@ class SnapchatClient:
             self._fail(msg)
             return {r: SendResult(False, msg) for r in wanted}
 
+        camera_dir = Path(self._settings().CAMERA_DIR)
+        calibrate = camera.needs_calibration(camera_dir)
         try:
-            prepare_camera_feed(image_path, Path(self._settings().CAMERA_DIR))
-            log.info("camera feed prepared from %s", image_path)
+            if calibrate:
+                camera.write_calibration_feed(camera_dir)
+                log.info("camera feed set to the calibration pattern")
+            else:
+                prepare_camera_feed(image_path, camera_dir)
+                log.info("camera feed prepared from %s", image_path)
         except Exception as exc:
             msg = f"Could not prepare camera feed: {exc}"
             self._fail(msg)
@@ -640,8 +683,15 @@ class SnapchatClient:
                 raise StepError("logged_in", self.selectors.get("logged_in"), "could not tell whether logged in")
             self._logged_in = True
             await self._open_camera(page)
+            if calibrate:
+                await self._calibrate_camera(page, camera_dir)
+                prepare_camera_feed(image_path, camera_dir)
+                log.info("camera feed prepared from %s", image_path)
+                await self._goto_web(page)  # reopen the camera so it reads the real image
+                await self._dismiss_popups(page)
+                await self._open_camera(page)
             await self._human_pause(1.0, 2.0)  # let a few frames render
-            await self._click(page, "shutter")
+            await self._press_shutter(page)
             await self._dismiss_popups(page)
             await self._click(page, "send_to")
             await self._human_pause()
@@ -723,6 +773,81 @@ class SnapchatClient:
             await self._dismiss_popups(page)
             await asyncio.sleep(0.4)
         raise StepError("camera_video", self.selectors.get("camera_video"), "camera preview never started")
+
+    async def _camera_box(self, page) -> dict | None:
+        """Bounding box of the camera pane: the largest visible <video> or <canvas>."""
+        try:
+            return await page.evaluate(
+                """() => {
+                  let best = null;
+                  for (const el of document.querySelectorAll('video, canvas')) {
+                    const r = el.getBoundingClientRect();
+                    const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
+                    const x1 = Math.min(innerWidth, r.right), y1 = Math.min(innerHeight, r.bottom);
+                    if (x1 - x0 < 60 || y1 - y0 < 60) continue;
+                    const cs = getComputedStyle(el);
+                    if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
+                    const area = (x1 - x0) * (y1 - y0);
+                    if (!best || area > best.area) best = {x: x0, y: y0, width: x1 - x0, height: y1 - y0, area};
+                  }
+                  return best;
+                }"""
+            )
+        except Exception as exc:
+            log.debug("camera box lookup failed: %s", exc)
+            return None
+
+    async def _calibrate_camera(self, page, camera_dir: Path) -> None:
+        """Measure which part of the camera frame Snapchat's pane shows. Never raises."""
+        try:
+            await asyncio.sleep(1.5)  # let the pattern reach the screen
+            box = await self._camera_box(page)
+            if not box:
+                raise RuntimeError("camera pane not found")
+            clip = {k: box[k] for k in ("x", "y", "width", "height")}
+            from PIL import Image
+
+            result = None
+            for _ in range(3):
+                shot = Image.open(io.BytesIO(await page.screenshot(clip=clip, type="png")))
+                result = camera.decode_calibration(shot, camera._frame_size())
+                if result:
+                    break
+                await asyncio.sleep(1.0)
+            if not result:
+                raise RuntimeError("calibration pattern not recognised in the camera pane")
+            result["pane"] = [round(box["width"]), round(box["height"])]
+            camera.save_calibration(result, camera_dir)
+            log.info("camera calibrated: pane shows frame region %s (preview mirrored: %s)",
+                     result["region"], result["preview_mirrored"])
+        except Exception as exc:
+            log.warning("camera calibration failed (%s); using the default placement", exc)
+            await self.save_debug("calibration", page)
+
+    async def _press_shutter(self, page) -> None:
+        """Press the capture button; if no selector matches, click where it sits in the camera pane."""
+        try:
+            await self._click(page, "shutter", timeout=min(self._step_timeout(), 6.0))
+            return
+        except StepError as exc:
+            box = await self._camera_box(page)
+            if not box:
+                raise
+            fx, fy = 0.5, 0.914  # centre of the capture ring, measured from Snapchat Web
+            raw = os.environ.get("SNAP_SHUTTER_POS", "").strip()
+            if raw:
+                try:
+                    fx, fy = (float(v) for v in raw.split(","))
+                except ValueError:
+                    log.warning("ignoring invalid SNAP_SHUTTER_POS=%r (expected x,y fractions)", raw)
+            x, y = box["x"] + box["width"] * fx, box["y"] + box["height"] * fy
+            log.warning("step=shutter no selector matched (%s); clicking the camera pane at %.0f,%.0f instead",
+                        exc.step, x, y)
+            await page.mouse.move(x, y, steps=random.randint(9, 22))
+            await self._human_pause(0.1, 0.3)
+            await page.mouse.down()
+            await asyncio.sleep(random.uniform(0.05, 0.12))
+            await page.mouse.up()
 
     async def _video_playing(self, page) -> bool:
         for cand in self.selectors.get("camera_video"):
