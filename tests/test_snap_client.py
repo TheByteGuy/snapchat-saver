@@ -53,7 +53,7 @@ main>button,#done{position:relative;z-index:2}
   <button id="shutter" class="hidden" aria-label="Capture"></button>
   <button id="sendto" class="hidden">Send To</button>
   <form id="picker" class="hidden" onsubmit="return false">
-    <input id="q" placeholder="Search">
+    <div role="searchbox" tabindex="-1"><span>To:</span><input id="q"></div>
     <ul id="plist"></ul>
     <button id="send" type="submit">Send</button>
   </form>

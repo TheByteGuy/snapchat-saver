@@ -912,6 +912,7 @@ class SnapchatClient:
         except StepError:
             log.info("no picker search box found; looking for %r in the visible list", name)
         if search is not None:
+            search = await self._editable(search)
             await self._human_click(page, search)
             await search.fill("")
             await self._human_type(search, _search_term(name))
@@ -928,6 +929,26 @@ class SnapchatClient:
                 await search.fill("")
             except Exception:
                 pass
+
+    @staticmethod
+    async def _editable(loc):
+        """The text field itself: Snapchat Web marks a wrapper <div role="searchbox"> whose
+        <input> sits inside it, and only the input can be filled."""
+        try:
+            ok = await loc.evaluate(
+                "el => el.matches('input, textarea') || el.isContentEditable"
+            )
+        except Exception:
+            return loc
+        if ok:
+            return loc
+        inner = loc.locator("input:not([type=hidden]), textarea, [contenteditable='true']").first
+        try:
+            if await inner.count():
+                return inner
+        except Exception:
+            pass
+        return loc
 
     async def _confirm_sent(self, page, send_btn) -> bool:
         """The picker closes (Send button disappears) once Snapchat accepts the snap."""
