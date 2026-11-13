@@ -97,6 +97,45 @@ def _serialized(fn):
     return wrapper
 
 
+# A <video> showing a webcam: its srcObject is a MediaStream with a live video track that
+# came from a capture device (getUserMedia tracks carry a deviceId; canvas/remote ones do not).
+_IS_CAMERA_JS = """v => {
+  const s = v.srcObject;
+  if (!s || typeof s.getVideoTracks !== 'function') return false;
+  return s.getVideoTracks().some(t => {
+    if (t.readyState !== 'live') return false;
+    if (typeof CanvasCaptureMediaStreamTrack !== 'undefined' && t instanceof CanvasCaptureMediaStreamTrack) return false;
+    const st = t.getSettings ? t.getSettings() : {};
+    return !!st.deviceId;
+  });
+}"""
+
+_CAMERA_BOX_JS = """() => {
+  const isCam = """ + _IS_CAMERA_JS + """;
+  let best = null;
+  for (const el of document.querySelectorAll('video')) {
+    if (!isCam(el)) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
+    const r = el.getBoundingClientRect();
+    let x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
+    let x1 = Math.min(innerWidth, r.right), y1 = Math.min(innerHeight, r.bottom);
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const as = getComputedStyle(a);
+      if (as.overflowX !== 'visible' || as.overflowY !== 'visible' || as.clipPath !== 'none') {
+        const ar = a.getBoundingClientRect();
+        if (as.overflowX !== 'visible') { x0 = Math.max(x0, ar.left); x1 = Math.min(x1, ar.right); }
+        if (as.overflowY !== 'visible') { y0 = Math.max(y0, ar.top); y1 = Math.min(y1, ar.bottom); }
+      }
+    }
+    if (x1 - x0 < 60 || y1 - y0 < 60) continue;
+    const area = (x1 - x0) * (y1 - y0);
+    if (!best || area > best.area) best = {x: x0, y: y0, width: x1 - x0, height: y1 - y0, area};
+  }
+  return best;
+}"""
+
+
 class SnapchatClient:
     def __init__(self) -> None:
         self._pw: Any = None
@@ -775,24 +814,14 @@ class SnapchatClient:
         raise StepError("camera_video", self.selectors.get("camera_video"), "camera preview never started")
 
     async def _camera_box(self, page) -> dict | None:
-        """Bounding box of the camera pane: the largest visible <video> or <canvas>."""
+        """Visible on-screen rectangle of the live camera preview, or None.
+
+        Only a <video> fed by a webcam (getUserMedia) stream counts: Snapchat Web also plays
+        other videos (Spotlight, lens promos) that must never be mistaken for the camera. The
+        rectangle is clipped by the viewport and by every ancestor that hides overflow, because
+        Snapchat sizes the video larger than its pane and lets the pane crop it."""
         try:
-            return await page.evaluate(
-                """() => {
-                  let best = null;
-                  for (const el of document.querySelectorAll('video, canvas')) {
-                    const r = el.getBoundingClientRect();
-                    const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
-                    const x1 = Math.min(innerWidth, r.right), y1 = Math.min(innerHeight, r.bottom);
-                    if (x1 - x0 < 60 || y1 - y0 < 60) continue;
-                    const cs = getComputedStyle(el);
-                    if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
-                    const area = (x1 - x0) * (y1 - y0);
-                    if (!best || area > best.area) best = {x: x0, y: y0, width: x1 - x0, height: y1 - y0, area};
-                  }
-                  return best;
-                }"""
-            )
+            return await page.evaluate(_CAMERA_BOX_JS)
         except Exception as exc:
             log.debug("camera box lookup failed: %s", exc)
             return None
@@ -832,7 +861,7 @@ class SnapchatClient:
         except StepError as exc:
             box = await self._camera_box(page)
             if not box:
-                raise
+                raise StepError("shutter", exc.candidates, "no capture button matched and no live camera preview was found") from exc
             fx, fy = 0.5, 0.914  # centre of the capture ring, measured from Snapchat Web
             raw = os.environ.get("SNAP_SHUTTER_POS", "").strip()
             if raw:
@@ -843,17 +872,24 @@ class SnapchatClient:
             x, y = box["x"] + box["width"] * fx, box["y"] + box["height"] * fy
             log.warning("step=shutter no selector matched (%s); clicking the camera pane at %.0f,%.0f instead",
                         exc.step, x, y)
+            before = page.url
             await page.mouse.move(x, y, steps=random.randint(9, 22))
             await self._human_pause(0.1, 0.3)
             await page.mouse.down()
             await asyncio.sleep(random.uniform(0.05, 0.12))
             await page.mouse.up()
+            await asyncio.sleep(1.0)
+            if page.url != before:
+                raise StepError("shutter", exc.candidates,
+                                f"clicking the camera pane at {x:.0f},{y:.0f} navigated to {page.url} instead of taking a snap; "
+                                "set SNAP_SHUTTER_POS or override 'shutter' in selectors.json")
 
     async def _video_playing(self, page) -> bool:
+        """True when a webcam preview (not just any video, e.g. Spotlight) is playing."""
         for cand in self.selectors.get("camera_video"):
             try:
                 ok = await page.locator(cand).evaluate_all(
-                    "els => els.some(v => v.readyState >= 2 && v.videoWidth > 0 && !v.paused)"
+                    "els => els.some(v => (" + _IS_CAMERA_JS + ")(v) && v.readyState >= 2 && v.videoWidth > 0 && !v.paused)"
                 )
                 if ok:
                     return True

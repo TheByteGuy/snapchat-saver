@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - claude/admiring-wozniak-f5ecdb
+      - claude/keen-goodall-t1zku4
     tags:
       - "v*"
   pull_request:

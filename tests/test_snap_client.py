@@ -34,7 +34,10 @@ nav{width:260px;border-right:1px solid #ccc;display:flex;flex-direction:column}
 #chats{overflow-y:auto;flex:1}
 #chats div[role=listitem]{padding:10px;border-bottom:1px solid #eee}
 main{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#111}
-video,canvas{width:270px;height:480px;object-fit:cover}
+#pane{width:270px;height:480px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#pane video{width:480px;height:480px;flex:none;object-fit:cover}
+canvas{width:270px;height:480px;object-fit:cover}
+#promo{position:fixed;left:0;top:250px;width:520px;height:560px;pointer-events:none;opacity:.9}
 .hidden{display:none!important}
 #cookie{position:fixed;left:0;right:0;bottom:0;top:0;background:rgba(0,0,0,.5);z-index:10}
 #picker{position:absolute;inset:20px;background:#fff;padding:10px;overflow:auto}
@@ -43,7 +46,7 @@ video,canvas{width:270px;height:480px;object-fit:cover}
 <nav><button aria-label="New Chat">+</button><div id="chats" role="list"></div></nav>
 <main>
   <div id="opencam" role="button" tabindex="0" aria-label="Click the Camera to send Snaps" style="color:#fff">Click the Camera to send Snaps</div>
-  <video id="v" class="hidden" autoplay playsinline muted></video>
+  <div id="pane"><video id="v" class="hidden" autoplay playsinline muted></video></div>
   <canvas id="c" class="hidden"></canvas>
   <button id="shutter" class="hidden" aria-label="Capture"></button>
   <button id="sendto" class="hidden">Send To</button>
@@ -54,6 +57,8 @@ video,canvas{width:270px;height:480px;object-fit:cover}
   </form>
   <div id="done" class="hidden" style="color:#fff">Sent!</div>
 </main>
+<!-- A playing non-camera video (like Spotlight), bigger than the camera pane. -->
+<video id="promo" autoplay muted playsinline></video>
 <div id="cookie"><div style="background:#fff;padding:20px">We use cookies <button>Accept All</button></div></div>
 <script>
 const FRIENDS = __FRIENDS__;
@@ -62,10 +67,13 @@ for (const f of FRIENDS) { const d=document.createElement('div'); d.setAttribute
   d.innerHTML='<span></span><br><small>Received · 2h</small>'; d.firstChild.textContent=f; chats.appendChild(d); }
 document.querySelector('#cookie button').onclick=()=>document.getElementById('cookie').remove();
 const $=id=>document.getElementById(id); let stream=null; const selected=new Set();
+{ const pc=document.createElement('canvas'); pc.width=320; pc.height=320; const g=pc.getContext('2d'); let n=0;
+  setInterval(()=>{ g.fillStyle=`hsl(${(n+=7)%360},80%,50%)`; g.fillRect(0,0,320,320); }, 50);
+  $('promo').srcObject=pc.captureStream(20); $('promo').play().catch(()=>{}); }
 $('opencam').onclick=async()=>{ stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}});
   $('v').srcObject=stream; $('v').classList.remove('hidden'); $('opencam').classList.add('hidden');
   await $('v').play(); $('shutter').classList.remove('hidden'); };
-$('shutter').onclick=()=>{ const v=$('v'), c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
+$('shutter').onclick=()=>{ $('pane').classList.add('hidden'); const v=$('v'), c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
   c.getContext('2d').drawImage(v,0,0); stream.getTracks().forEach(t=>t.stop());
   v.classList.add('hidden'); c.classList.remove('hidden'); $('shutter').classList.add('hidden'); $('sendto').classList.remove('hidden'); };
 function renderPicker(){ const q=$('q').value.toLowerCase(); const ul=$('plist'); ul.innerHTML='';
@@ -344,3 +352,25 @@ def test_first_send_calibrates_camera_and_fills_pane(env, tmp_path):
     # and the image must land in the middle of the frame.
     assert abs((x + w / 2) - 960) < 20 and abs(w / h - 9 / 16) < 0.05, cal
     assert sent["center"][1] > 150 and sent["center"][0] < 90
+
+
+def test_camera_box_is_the_clipped_webcam_pane_not_other_videos(env):
+    """A playing non-camera video (Spotlight) must not count as the camera, and the box is the
+    visible pane, not the oversized <video> element inside it."""
+    async def go(client):
+        page = await client._get_page()
+        await client._goto_web(page)
+        await client._dismiss_popups(page)
+        before = await client._video_playing(page)
+        await client._open_camera(page)
+        box = await client._camera_box(page)
+        pane = await page.evaluate(
+            "() => { const r = document.getElementById('pane').getBoundingClientRect();"
+            " return {x: r.x, y: r.y, width: r.width, height: r.height}; }")
+        return before, box, pane
+
+    before, box, pane = _run(go)
+    assert before is False  # the promo video alone is not a live camera
+    assert box is not None
+    for k in ("x", "y", "width", "height"):
+        assert abs(box[k] - pane[k]) <= 1, (box, pane)
