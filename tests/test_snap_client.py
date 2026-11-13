@@ -22,7 +22,7 @@ pytest.importorskip("playwright")
 from app.snapchat import NotLoggedInError, SnapchatClient  # noqa: E402
 from app.snapchat.client import _find_bundled_chromium  # noqa: E402
 
-FRIENDS = ["Alice Smith", "Alice Smithson", "Bob Jones", "Carol O'Neil", "My AI"] + [f"Friend {i:02d}" for i in range(1, 25)]
+FRIENDS = ["Alice Smith", "Alice Smithson", "Bob Jones", "Carol O'Neil", "\U0001F483Q-Tip\U0001F57A", "My AI"] + [f"Friend {i:02d}" for i in range(1, 25)]
 
 LOGIN_HTML = """<!doctype html><html><body><h1>Log in to Snapchat</h1>
 <form><input name="accountIdentifier" placeholder="Username or email"><button type="button">Next</button></form>
@@ -34,38 +34,61 @@ nav{width:260px;border-right:1px solid #ccc;display:flex;flex-direction:column}
 #chats{overflow-y:auto;flex:1}
 #chats div[role=listitem]{padding:10px;border-bottom:1px solid #eee}
 main{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#111}
-video,canvas{width:270px;height:480px;object-fit:cover}
+#pane{pointer-events:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:270px;height:480px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#pane video{width:270px;height:480px;flex:none;object-fit:cover}
+canvas{width:270px;height:480px;object-fit:cover}
+#promo{position:fixed;left:0;top:250px;width:520px;height:560px;pointer-events:none;opacity:.9}
 .hidden{display:none!important}
 #cookie{position:fixed;left:0;right:0;bottom:0;top:0;background:rgba(0,0,0,.5);z-index:10}
-#picker{position:absolute;inset:20px;background:#fff;padding:10px;overflow:auto}
+main>button,#done{position:relative;z-index:2}
+#picker{position:absolute;z-index:3;inset:20px;background:#fff;padding:10px;overflow:auto}
 #picker li.sel{background:#ffc}
 </style></head><body>
 <nav><button aria-label="New Chat">+</button><div id="chats" role="list"></div></nav>
 <main>
   <div id="opencam" role="button" tabindex="0" aria-label="Click the Camera to send Snaps" style="color:#fff">Click the Camera to send Snaps</div>
-  <video id="v" class="hidden" autoplay playsinline muted></video>
+  <!-- Like Snapchat: an overflow-hidden wrapper that does NOT clip the absolutely positioned pane. -->
+  <div id="wrap" style="overflow:hidden;height:0;width:0"><div id="pane"><video id="v" class="hidden" autoplay playsinline muted></video></div></div>
   <canvas id="c" class="hidden"></canvas>
   <button id="shutter" class="hidden" aria-label="Capture"></button>
   <button id="sendto" class="hidden">Send To</button>
   <form id="picker" class="hidden" onsubmit="return false">
-    <input id="q" placeholder="Search">
+    <div role="searchbox" tabindex="-1"><span>To:</span><input id="q"></div>
     <ul id="plist"></ul>
     <button id="send" type="submit">Send</button>
   </form>
   <div id="done" class="hidden" style="color:#fff">Sent!</div>
 </main>
+<!-- A playing non-camera video (like Spotlight), bigger than the camera pane. -->
+<video id="promo" autoplay muted playsinline></video>
 <div id="cookie"><div style="background:#fff;padding:20px">We use cookies <button>Accept All</button></div></div>
 <script>
 const FRIENDS = __FRIENDS__;
 const chats = document.getElementById('chats');
 for (const f of FRIENDS) { const d=document.createElement('div'); d.setAttribute('role','listitem');
-  d.innerHTML='<span></span><br><small>Received · 2h</small>'; d.firstChild.textContent=f; chats.appendChild(d); }
+  // Like Snapchat: a Bitmoji status emoji line above the name.
+  d.innerHTML='<span>\\u{1F60A}</span><br><span></span><br><small>Delivered · 2h · 1351 \\u{1F525}</small>';
+  d.children[2].textContent=f; chats.appendChild(d); }
 document.querySelector('#cookie button').onclick=()=>document.getElementById('cookie').remove();
 const $=id=>document.getElementById(id); let stream=null; const selected=new Set();
+{ const pc=document.createElement('canvas'); pc.width=320; pc.height=320; const g=pc.getContext('2d'); let n=0;
+  setInterval(()=>{ g.fillStyle=`hsl(${(n+=7)%360},80%,50%)`; g.fillRect(0,0,320,320); }, 50);
+  const rec=new MediaRecorder(pc.captureStream(20), {mimeType:'video/webm'}); const parts=[];
+  rec.ondataavailable=e=>parts.push(e.data);
+  rec.onstop=()=>{ const p=$('promo'); p.loop=true; p.src=URL.createObjectURL(new Blob(parts,{type:'video/webm'})); p.play().catch(()=>{}); };
+  rec.start(); setTimeout(()=>rec.stop(), 600); }
 $('opencam').onclick=async()=>{ stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}});
-  $('v').srcObject=stream; $('v').classList.remove('hidden'); $('opencam').classList.add('hidden');
-  await $('v').play(); $('shutter').classList.remove('hidden'); };
-$('shutter').onclick=()=>{ const v=$('v'), c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
+  // Like Snapchat Web: the webcam goes through a hidden 9:16 "lens" canvas at the top-left,
+  // and the preview <video id="local-video"> shows that canvas' stream.
+  const raw=document.createElement('video'); raw.muted=true; raw.srcObject=stream; await raw.play();
+  const lens=document.createElement('canvas'); lens.width=406; lens.height=720;
+  lens.style.cssText='position:fixed;left:0;top:0;z-index:-1'; document.body.appendChild(lens);
+  const lg=lens.getContext('2d');
+  (function draw(){ const vw=raw.videoWidth, vh=raw.videoHeight; if (vw) { const cw=vh*406/720;
+    lg.drawImage(raw,(vw-cw)/2,0,cw,vh,0,0,406,720); } requestAnimationFrame(draw); })();
+  $('v').id='local-video'; window.$v=$('local-video'); window.$v.srcObject=lens.captureStream(30); $v.classList.remove('hidden'); $('opencam').classList.add('hidden');
+  await $v.play(); $('shutter').classList.remove('hidden'); };
+$('shutter').onclick=()=>{ $('wrap').classList.add('hidden'); const v=$v, c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
   c.getContext('2d').drawImage(v,0,0); stream.getTracks().forEach(t=>t.stop());
   v.classList.add('hidden'); c.classList.remove('hidden'); $('shutter').classList.add('hidden'); $('sendto').classList.remove('hidden'); };
 function renderPicker(){ const q=$('q').value.toLowerCase(); const ul=$('plist'); ul.innerHTML='';
@@ -246,8 +269,9 @@ def test_send_to_two_recipients_uses_fake_camera(env, tmp_path):
     assert len(env.sent) == 2
     one, two = env.sent
     assert sorted(one["recipients"]) == ["Alice Smith", "Bob Jones"]  # exact match: not "Alice Smithson"
-    assert (one["width"], one["height"]) == (1280, 720)  # page asked for 1280x720; Chromium scales the 1920x1080 feed
-    assert one["edge"][0] < one["center"][0] - 40  # letterbox fill (darkened blur) at the sides
+    # The snap is the 9:16 lens output (like Snapchat Web), and after calibration the image fills it.
+    assert (one["width"], one["height"]) == (406, 720)
+    assert one["edge"][0] > 150 and one["edge"][1] < 90, one
     r, g, b = one["center"]
     assert r > 170 and g < 90 and b < 90
     assert two["recipients"] == ["Carol O'Neil"]
@@ -293,7 +317,9 @@ def test_broken_selector_reports_step_and_override_fixes_it(env, tmp_path):
         return bad, good
 
     bad, good = _run(go)
-    assert not bad["Bob Jones"].ok and "shutter" in bad["Bob Jones"].error
+    # With no shutter selector the client clicks the pane by position, which misses in this
+    # fixture, so the failure surfaces at the next step.
+    assert not bad["Bob Jones"].ok and "send_to" in bad["Bob Jones"].error
     assert any("send_prepare" in f for f in _debug_files(tmp_path))
     assert good["Bob Jones"].ok
 
@@ -324,3 +350,56 @@ def test_calls_from_another_event_loop_are_dispatched_to_owner(env):
         owner.call_soon_threadsafe(owner.stop)
         t.join(10)
         owner.close()
+
+
+def test_first_send_calibrates_camera_and_fills_pane(env, tmp_path):
+    import json as _json
+
+    async def go(client):
+        return await client.send_snap(_image(tmp_path, (20, 200, 60)), ["Bob Jones"])
+
+    res = _run(go)
+    assert res["Bob Jones"].ok
+    cal = _json.loads((tmp_path / "data" / "camera" / "calibration.json").read_text())
+    x, y, w, h = cal["region"]
+    assert w > 80 and h > 80 and 0 <= x < 1920 and 0 <= y < 1080
+    sent = env.sent[-1]
+    # The fixture's pane is a centred portrait crop of the frame, so that is what must be measured,
+    # and the image must land in the middle of the frame.
+    assert abs((x + w / 2) - 960) < 20 and abs(w / h - 9 / 16) < 0.05, cal
+    assert sent["center"][1] > 150 and sent["center"][0] < 90
+
+
+def test_camera_box_is_the_clipped_webcam_pane_not_other_videos(env):
+    """A playing non-camera video (Spotlight) must not count as the camera, and the box is the
+    visible pane, not the oversized <video> element inside it."""
+    async def go(client):
+        page = await client._get_page()
+        await client._goto_web(page)
+        await client._dismiss_popups(page)
+        await page.wait_for_function(
+            "() => { const p = document.getElementById('promo'); return p.readyState >= 2 && !p.paused; }", timeout=10000)
+        before = await client._video_playing(page)
+        await client._open_camera(page)
+        box = await client._camera_box(page)
+        pane = await page.evaluate(
+            "() => { const r = document.getElementById('pane').getBoundingClientRect();"
+            " return {x: r.x, y: r.y, width: r.width, height: r.height}; }")
+        return before, box, pane
+
+    before, box, pane = _run(go)
+    assert before is False  # the promo video alone is not a live camera
+    assert box is not None
+    for k in ("x", "y", "width", "height"):
+        assert abs(box[k] - pane[k]) <= 1, (box, pane)
+
+
+def test_send_to_friend_with_emoji_in_name(env, tmp_path):
+    name = "\U0001F483Q-Tip\U0001F57A"
+
+    async def go(client):
+        return await client.send_snap(_image(tmp_path, (200, 30, 30)), [name])
+
+    res = _run(go)
+    assert res[name].ok, res[name].error
+    assert env.sent[-1]["recipients"] == [name]

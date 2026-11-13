@@ -99,3 +99,43 @@ def test_recipient_name_templating():
     cands = store.get("picker_recipient", name='Bob "B" Jones')
     assert all("{name}" not in c for c in cands)
     assert any(escape_name('Bob "B" Jones') in c for c in cands)
+
+
+def test_calibration_pattern_decodes_crops_and_mirroring():
+    from PIL import Image, ImageOps
+
+    from app.snapchat import camera
+
+    frame = camera.calibration_frame()
+    for x, y, w, h, mirrored, shot_w in [(652, 0, 405, 720, True, 203), (757, 0, 607, 1080, False, 300),
+                                         (100, 300, 500, 700, True, 250)]:
+        crop = frame.crop((x, y, x + w, y + h))
+        if mirrored:
+            crop = ImageOps.mirror(crop)
+        got = camera.decode_calibration(crop.resize((shot_w, round(shot_w * h / w)), Image.BILINEAR))
+        assert got and got["preview_mirrored"] is mirrored
+        assert all(abs(a - b) <= 4 for a, b in zip(got["region"], (x, y, w, h)))
+    assert camera.decode_calibration(Image.new("RGB", (200, 300), (90, 120, 40))) is None
+
+
+def test_compose_frame_places_image_in_region():
+    from PIL import Image
+
+    from app.snapchat import camera
+
+    frame = camera.compose_frame(Image.new("RGB", (1080, 1920), (250, 10, 10)), region=(652, 0, 405, 720))
+    assert frame.size == (1920, 1080)
+    r, g, b = frame.getpixel((652 + 200, 360))
+    assert r > 230 and g < 40
+    assert frame.getpixel((100, 900))[0] < 200  # outside the region: darkened blur, not the image
+
+
+def test_chat_row_name_skips_bitmoji_status_emoji():
+    from app.snapchat.client import SnapchatClient, _search_term
+
+    row = "\U0001F60A\n\U0001F483Q-Tip\U0001F57A\nDelivered \u00b7 2h \u00b7 1351 \U0001F525"
+    assert SnapchatClient._name_from_row(row) == "\U0001F483Q-Tip\U0001F57A"
+    assert SnapchatClient._name_from_row("\U0001F60A\nJamison Cartwright\nOpened \u00b7 2h") == "Jamison Cartwright"
+    assert _search_term("\U0001F483Q-Tip\U0001F57A") == "Q-Tip"
+    assert _search_term("Carol O'Neil") == "Carol O'Neil"
+    assert _search_term("\U0001F483") == "\U0001F483"

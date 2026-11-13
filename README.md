@@ -155,6 +155,9 @@ with environment variables:
 | `SNAP_FEED_LAYOUT` | `landscape` | Shape of the fake-camera frame. The default centres the image in a 1920x1080 frame so it survives Snapchat's portrait crop; `portrait` feeds the image as is. |
 | `SNAP_FEED_SCALE` | `0.96` | How much of the frame height the image fills in the landscape layout. Lower it if the edges of the image get cropped. |
 | `SNAP_STEP_TIMEOUT` | `20` | Seconds to wait for each step of the send flow. |
+| `SNAP_FEED_CALIBRATE` | `1` | On the first send (and weekly after that) the app shows a striped test pattern to Snapchat's camera for a few seconds and measures which part of the frame the camera pane displays, so the image fills it exactly. The result is stored in `/data/camera/calibration.json`; delete that file to measure again. `0` disables this. |
+| `SNAP_FEED_REGION` | *(auto)* | Manual override for the above: `x,y,width,height` of the part of the 1920x1080 camera frame that Snapchat shows. |
+| `SNAP_SHUTTER_POS` | `0.5,0.914` | Where the capture button sits inside the camera pane (fractions of its width and height). Used only when no `shutter` selector matches. |
 | `SNAP_SEND_JITTER_MINUTES` | `8` | The daily Snap goes out a random 0 to this many minutes after the time you set, so it is not sent at the exact same second every day. `0` turns this off. |
 | `SNAP_HUMAN_DELAY` | `1` | Multiplier for the small random pauses, pointer movement and typing rhythm used while sending. Raise it to go slower. `0` disables them (not recommended). |
 
@@ -312,7 +315,9 @@ Step names: `logged_out`, `logged_in`, `chat_list_item`, `chat_list_scroll`,
 
 To find out which step broke, look at the container log (each step logs which
 candidate matched, e.g. `step=shutter matched candidate #2`) and at the
-screenshot and page HTML saved as `/data/debug/<timestamp>-<step>.png/.html`.
+screenshot, page HTML and a short text report of the clickable elements saved as
+`/data/debug/<timestamp>-<step>.png/.html/.txt`. The newest report is also available from
+the dashboard at `/api/debug/latest` (add `?kind=png` for the screenshot).
 
 ---
 
