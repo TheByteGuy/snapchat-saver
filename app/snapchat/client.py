@@ -124,6 +124,15 @@ _CAMERA_BOX_JS = """() => {
 }"""
 
 
+def _search_term(name: str) -> str:
+    """What to type into the send-list search for ``name``: the name without emoji and other
+    symbols (e.g. "💃Q-Tip🕺" -> "Q-Tip"), which typing may mangle and search may ignore.
+    The row itself is still matched by the full display name."""
+    kept = "".join(ch if (ch.isalnum() or ch in " -_.'&") else " " for ch in name)
+    term = " ".join(kept.split())
+    return term or name
+
+
 class SnapchatClient:
     def __init__(self) -> None:
         self._pw: Any = None
@@ -642,6 +651,10 @@ class SnapchatClient:
         for line in (ln.strip() for ln in text.splitlines()):
             if not line or line.casefold() in _CHAT_NOISE or len(line) > 64:
                 continue
+            # Snapchat shows a Bitmoji status emoji (e.g. "😊") above some names; a line with
+            # no letters or digits is never the name.
+            if not any(ch.isalnum() for ch in line):
+                continue
             if line.casefold() in IGNORED_CHAT_NAMES:
                 return None
             return line
@@ -901,7 +914,7 @@ class SnapchatClient:
         if search is not None:
             await self._human_click(page, search)
             await search.fill("")
-            await self._human_type(search, name)
+            await self._human_type(search, _search_term(name))
             await asyncio.sleep(0.8)
         item = await self._find(
             page, "picker_recipient", name=name, timeout=min(10.0, self._step_timeout()), root=root

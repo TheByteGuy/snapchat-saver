@@ -128,3 +128,14 @@ def test_compose_frame_places_image_in_region():
     r, g, b = frame.getpixel((652 + 200, 360))
     assert r > 230 and g < 40
     assert frame.getpixel((100, 900))[0] < 200  # outside the region: darkened blur, not the image
+
+
+def test_chat_row_name_skips_bitmoji_status_emoji():
+    from app.snapchat.client import SnapchatClient, _search_term
+
+    row = "\U0001F60A\n\U0001F483Q-Tip\U0001F57A\nDelivered \u00b7 2h \u00b7 1351 \U0001F525"
+    assert SnapchatClient._name_from_row(row) == "\U0001F483Q-Tip\U0001F57A"
+    assert SnapchatClient._name_from_row("\U0001F60A\nJamison Cartwright\nOpened \u00b7 2h") == "Jamison Cartwright"
+    assert _search_term("\U0001F483Q-Tip\U0001F57A") == "Q-Tip"
+    assert _search_term("Carol O'Neil") == "Carol O'Neil"
+    assert _search_term("\U0001F483") == "\U0001F483"

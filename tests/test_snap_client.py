@@ -22,7 +22,7 @@ pytest.importorskip("playwright")
 from app.snapchat import NotLoggedInError, SnapchatClient  # noqa: E402
 from app.snapchat.client import _find_bundled_chromium  # noqa: E402
 
-FRIENDS = ["Alice Smith", "Alice Smithson", "Bob Jones", "Carol O'Neil", "My AI"] + [f"Friend {i:02d}" for i in range(1, 25)]
+FRIENDS = ["Alice Smith", "Alice Smithson", "Bob Jones", "Carol O'Neil", "\U0001F483Q-Tip\U0001F57A", "My AI"] + [f"Friend {i:02d}" for i in range(1, 25)]
 
 LOGIN_HTML = """<!doctype html><html><body><h1>Log in to Snapchat</h1>
 <form><input name="accountIdentifier" placeholder="Username or email"><button type="button">Next</button></form>
@@ -66,7 +66,9 @@ main>button,#done{position:relative;z-index:2}
 const FRIENDS = __FRIENDS__;
 const chats = document.getElementById('chats');
 for (const f of FRIENDS) { const d=document.createElement('div'); d.setAttribute('role','listitem');
-  d.innerHTML='<span></span><br><small>Received · 2h</small>'; d.firstChild.textContent=f; chats.appendChild(d); }
+  // Like Snapchat: a Bitmoji status emoji line above the name.
+  d.innerHTML='<span>\\u{1F60A}</span><br><span></span><br><small>Delivered · 2h · 1351 \\u{1F525}</small>';
+  d.children[2].textContent=f; chats.appendChild(d); }
 document.querySelector('#cookie button').onclick=()=>document.getElementById('cookie').remove();
 const $=id=>document.getElementById(id); let stream=null; const selected=new Set();
 { const pc=document.createElement('canvas'); pc.width=320; pc.height=320; const g=pc.getContext('2d'); let n=0;
@@ -390,3 +392,14 @@ def test_camera_box_is_the_clipped_webcam_pane_not_other_videos(env):
     assert box is not None
     for k in ("x", "y", "width", "height"):
         assert abs(box[k] - pane[k]) <= 1, (box, pane)
+
+
+def test_send_to_friend_with_emoji_in_name(env, tmp_path):
+    name = "\U0001F483Q-Tip\U0001F57A"
+
+    async def go(client):
+        return await client.send_snap(_image(tmp_path, (200, 30, 30)), [name])
+
+    res = _run(go)
+    assert res[name].ok, res[name].error
+    assert env.sent[-1]["recipients"] == [name]
