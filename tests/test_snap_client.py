@@ -34,19 +34,21 @@ nav{width:260px;border-right:1px solid #ccc;display:flex;flex-direction:column}
 #chats{overflow-y:auto;flex:1}
 #chats div[role=listitem]{padding:10px;border-bottom:1px solid #eee}
 main{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#111}
-#pane{width:270px;height:480px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#pane{pointer-events:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:270px;height:480px;overflow:hidden;display:flex;align-items:center;justify-content:center}
 #pane video{width:270px;height:480px;flex:none;object-fit:cover}
 canvas{width:270px;height:480px;object-fit:cover}
 #promo{position:fixed;left:0;top:250px;width:520px;height:560px;pointer-events:none;opacity:.9}
 .hidden{display:none!important}
 #cookie{position:fixed;left:0;right:0;bottom:0;top:0;background:rgba(0,0,0,.5);z-index:10}
-#picker{position:absolute;inset:20px;background:#fff;padding:10px;overflow:auto}
+main>button,#done{position:relative;z-index:2}
+#picker{position:absolute;z-index:3;inset:20px;background:#fff;padding:10px;overflow:auto}
 #picker li.sel{background:#ffc}
 </style></head><body>
 <nav><button aria-label="New Chat">+</button><div id="chats" role="list"></div></nav>
 <main>
   <div id="opencam" role="button" tabindex="0" aria-label="Click the Camera to send Snaps" style="color:#fff">Click the Camera to send Snaps</div>
-  <div id="pane"><video id="v" class="hidden" autoplay playsinline muted></video></div>
+  <!-- Like Snapchat: an overflow-hidden wrapper that does NOT clip the absolutely positioned pane. -->
+  <div id="wrap" style="overflow:hidden;height:0;width:0"><div id="pane"><video id="v" class="hidden" autoplay playsinline muted></video></div></div>
   <canvas id="c" class="hidden"></canvas>
   <button id="shutter" class="hidden" aria-label="Capture"></button>
   <button id="sendto" class="hidden">Send To</button>
@@ -84,7 +86,7 @@ $('opencam').onclick=async()=>{ stream=await navigator.mediaDevices.getUserMedia
     lg.drawImage(raw,(vw-cw)/2,0,cw,vh,0,0,406,720); } requestAnimationFrame(draw); })();
   $('v').id='local-video'; window.$v=$('local-video'); window.$v.srcObject=lens.captureStream(30); $v.classList.remove('hidden'); $('opencam').classList.add('hidden');
   await $v.play(); $('shutter').classList.remove('hidden'); };
-$('shutter').onclick=()=>{ $('pane').classList.add('hidden'); const v=$v, c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
+$('shutter').onclick=()=>{ $('wrap').classList.add('hidden'); const v=$v, c=$('c'); c.width=v.videoWidth; c.height=v.videoHeight;
   c.getContext('2d').drawImage(v,0,0); stream.getTracks().forEach(t=>t.stop());
   v.classList.add('hidden'); c.classList.remove('hidden'); $('shutter').classList.add('hidden'); $('sendto').classList.remove('hidden'); };
 function renderPicker(){ const q=$('q').value.toLowerCase(); const ul=$('plist'); ul.innerHTML='';

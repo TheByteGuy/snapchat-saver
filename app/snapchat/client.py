@@ -114,16 +114,8 @@ _CAMERA_BOX_JS = """() => {
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
     const r = el.getBoundingClientRect();
-    let x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
-    let x1 = Math.min(innerWidth, r.right), y1 = Math.min(innerHeight, r.bottom);
-    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-      const as = getComputedStyle(a);
-      if (as.overflowX !== 'visible' || as.overflowY !== 'visible' || as.clipPath !== 'none') {
-        const ar = a.getBoundingClientRect();
-        if (as.overflowX !== 'visible') { x0 = Math.max(x0, ar.left); x1 = Math.min(x1, ar.right); }
-        if (as.overflowY !== 'visible') { y0 = Math.max(y0, ar.top); y1 = Math.min(y1, ar.bottom); }
-      }
-    }
+    const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top);
+    const x1 = Math.min(innerWidth, r.right), y1 = Math.min(innerHeight, r.bottom);
     if (x1 - x0 < 60 || y1 - y0 < 60) continue;
     const area = (x1 - x0) * (y1 - y0);
     if (!best || area > best.area) best = {x: x0, y: y0, width: x1 - x0, height: y1 - y0, area};
@@ -474,7 +466,7 @@ class SnapchatClient:
             except Exception as exc:
                 log.warning("debug HTML dump failed: %s", exc)
             try:
-                stem.with_suffix(".txt").write_text(await self._page_report(page), encoding="utf-8")
+                stem.with_suffix(".txt").write_text(await self._page_report(page), encoding="utf-8", errors="replace")
             except Exception as exc:
                 log.warning("debug report failed: %s", exc)
             log.info("saved debug artefacts %s.{png,html,txt}", stem)
@@ -500,7 +492,7 @@ class SnapchatClient:
                 const chat = role === 'listitem' || role === 'option';
                 out.push([el.tagName.toLowerCase(), role, el.getAttribute('aria-label') || '',
                   el.getAttribute('title') || '', el.getAttribute('placeholder') || '', el.getAttribute('type') || '',
-                  chat ? '(row)' : (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40),
+                  chat ? '(row)' : Array.from((el.innerText || '').trim().replace(/\\s+/g, ' ')).slice(0, 40).join(''),
                   (typeof el.className === 'string' ? el.className : '').slice(0, 70),
                   el.id || '', Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height),
                   el.tagName === 'VIDEO' ? `video ${el.videoWidth}x${el.videoHeight} fit=${cs.objectFit} transform=${cs.transform}` : '']);
@@ -812,10 +804,8 @@ class SnapchatClient:
     async def _camera_box(self, page) -> dict | None:
         """Visible on-screen rectangle of the live camera preview, or None.
 
-        Only a <video> fed by a webcam (getUserMedia) stream counts: Snapchat Web also plays
-        other videos (Spotlight, lens promos) that must never be mistaken for the camera. The
-        rectangle is clipped by the viewport and by every ancestor that hides overflow, because
-        Snapchat sizes the video larger than its pane and lets the pane crop it."""
+        Only the camera preview <video> counts (see _IS_CAMERA_JS): Snapchat Web also plays other
+        videos and draws a hidden lens canvas that must never be mistaken for the camera."""
         try:
             return await page.evaluate(_CAMERA_BOX_JS)
         except Exception as exc:
